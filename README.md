@@ -1,3 +1,3 @@
 # asgi-video-streaming
 
-Simple example of streaming video using ASGI.
+Example of streaming video using ASGI.
