@@ -1,19 +1,11 @@
 import cv2
 import asyncio
-from starlette import Response, Router, Path
 
+from starlette.applications import Starlette
+from starlette.routing import Route, Mount
+from starlette.templating import Jinja2Templates
 
-with open("index.html", "r") as f:
-    content = f.read()
-
-
-class Home:
-    def __init__(self, scope):
-        self.scope = scope
-
-    async def __call__(self, receive, send):
-        response = Response(content, media_type="text/html")
-        await response(receive, send)
+templates = Jinja2Templates(directory="templates")
 
 
 class Camera:
@@ -40,44 +32,38 @@ class Camera:
             await asyncio.sleep(0.01)
 
 
-class Stream:
-    def __init__(self, scope):
-        self.scope = scope
-        self.camera = Camera()
-
-    async def __call__(self, receive, send):
-        message = await receive()
-
-        if message["type"] == "http.request":
-
-            await send(
-                {
-                    "type": "http.response.start",
-                    "status": 200,
-                    "headers": [
-                        [b"Content-Type", b"multipart/x-mixed-replace; boundary=frame"]
-                    ],
-                }
-            )
-            while True:
-                async for frame in self.camera.frames():
-                    data = b"".join(
-                        [
-                            b"--frame\r\n",
-                            b"Content-Type: image/jpeg\r\n\r\n",
-                            frame,
-                            b"\r\n",
-                        ]
-                    )
-
-                    await send(
-                        {"type": "http.response.body", "body": data, "more_body": True}
-                    )
+async def homepage(request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
 
-app = Router(
-    [
-        Path("/", app=Home, methods=["GET"]),
-        Path("/stream/", app=Stream, methods=["GET"]),
-    ]
-)
+async def stream(scope, receive, send):
+    message = await receive()
+    camera = Camera()
+
+    if message["type"] == "http.request":
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    [b"Content-Type", b"multipart/x-mixed-replace; boundary=frame"]
+                ],
+            }
+        )
+        while True:
+            async for frame in camera.frames():
+                data = b"".join(
+                    [
+                        b"--frame\r\n",
+                        b"Content-Type: image/jpeg\r\n\r\n",
+                        frame,
+                        b"\r\n",
+                    ]
+                )
+                await send(
+                    {"type": "http.response.body", "body": data, "more_body": True}
+                )
+
+
+routes = [Route("/", endpoint=homepage), Mount("/stream/", stream)]
+app = Starlette(debug=True, routes=routes)
